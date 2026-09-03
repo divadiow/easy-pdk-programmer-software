@@ -2,6 +2,22 @@ EASY PDK PROGRAMMER SOFTWARE
 [![License](https://img.shields.io/:license-gpl3-blue.svg?style=flat-square)](https://www.gnu.org/licenses/gpl-3.0.html) [![Build Status](https://travis-ci.com/free-pdk/easy-pdk-programmer-software.svg?branch=master)](https://travis-ci.com/free-pdk/easy-pdk-programmer-software) [![Downloads](https://img.shields.io/github/downloads/free-pdk/easy-pdk-programmer-software/total.svg?maxAge=3600)](https://github.com/free-pdk/easy-pdk-programmer-software/releases/latest)
 ----------------------------
 
+> **NY8 read-only experimental branch**
+>
+> This branch can build mutually exclusive EasyPDK Lite R1 firmware for the
+> fixed, no-VPP NY8 read experiment. In that image the ordinary target
+> probe/read/write/erase/start handlers described below are compiled out. Use
+> only the matching [`ny8-easypdk.py`](ny8-easypdk.py) host utility and follow
+> [`NY8_READ_ONLY.md`](NY8_READ_ONLY.md) before connecting a target.
+>
+> The tracked [`Firmware/EASYPDKPROG.dfu`](Firmware/EASYPDKPROG.dfu) remains the
+> original upstream firmware, not the NY8 experimental image.
+
+## Upstream stock Padauk software
+
+The download link and normal `easypdkprog` command examples below describe the
+upstream Padauk workflow. They do not operate the NY8 experimental firmware.
+
 Download: [![Release](https://img.shields.io/github/release/free-pdk/easy-pdk-programmer-software.svg?maxAge=60)](https://github.com/free-pdk/easy-pdk-programmer-software/releases/latest) <== click here to download.
 
 
