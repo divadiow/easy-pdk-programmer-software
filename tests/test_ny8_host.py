@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from contextlib import redirect_stderr
+import hashlib
 import importlib.util
 import io
 from pathlib import Path
@@ -127,6 +128,39 @@ class DecodeTests(unittest.TestCase):
 
 
 class SafetyGateTests(unittest.TestCase):
+    def test_validated_program_prefix_gate(self) -> None:
+        self.assertEqual(
+            ny8.VALIDATED_PROGRAM_PREFIXES_SHA256,
+            {
+                "69C2F39AB27A6AC8CDBE072E78CCF9786E0495707A7EBC939E6104A047034AA9":
+                    "original Y6 program-prefix profile",
+                "671D90D7B482ED49F1E73996E67D2EB538F778652DA8B0F96002604ADB3B0512":
+                    "TH03Pro Forever Young program-prefix profile",
+            },
+        )
+        synthetic_capture = bytes(range(ny8.VALIDATED_PROGRAM_PREFIX_BYTES))
+        synthetic_digest = hashlib.sha256(synthetic_capture).hexdigest().upper()
+        with mock.patch.dict(
+            ny8.VALIDATED_PROGRAM_PREFIXES_SHA256,
+            {synthetic_digest: "synthetic specimen"},
+            clear=True,
+        ):
+            digest, specimen = ny8.require_validated_program_prefix(
+                synthetic_capture + b"first suffix"
+            )
+            self.assertEqual(digest, synthetic_digest)
+            self.assertEqual(specimen, "synthetic specimen")
+            repeated_digest, _ = ny8.require_validated_program_prefix(
+                synthetic_capture + b"different suffix"
+            )
+            self.assertEqual(repeated_digest, synthetic_digest)
+            with self.assertRaises(ny8.ProtocolError):
+                ny8.require_validated_program_prefix(
+                    b"x" * ny8.VALIDATED_PROGRAM_PREFIX_BYTES
+                )
+        with self.assertRaises(ny8.ProtocolError):
+            ny8.require_validated_program_prefix(b"short")
+
     def test_status_parser_and_safe_boundaries(self) -> None:
         packed = struct.pack("<8I", 16, 2, 3300, 2800, 250, 500, 500, 4100)
         status = ny8.parse_status(packed)

@@ -6,10 +6,11 @@ This is experimental, read-only firmware and a matching host utility for the
 EasyPDK Programmer Lite R1. It is not an extension of the normal Padauk
 programming support, a general Nyquest programmer, or an official Nyquest tool.
 
-The only target live-tested is the loose SOP16 `Y6` from the investigated sensor
-board. Its protocol-visible Q-Writer IDs are `0x0F02` and `0x0014`, which match
-Q-Writer's NY8A054E revision C profile. That is strong identification evidence,
-but not cryptographic proof of the die manufacturer.
+Two loose SOP16 targets have been live-tested: the original `Y6` from the
+investigated sensor board and one suspected NY8 removed from a TH03Pro Forever
+Young device. Both have protocol-visible Q-Writer IDs `0x0F02` and `0x0014`,
+which match Q-Writer's NY8A054E revision C profile. That is strong identification
+evidence, but not cryptographic proof of the die manufacturer.
 
 Q-Writer classifies this profile as OTP, with a 4096-byte/2048-word program
 space, and does not mark it as MTP or EEPROM-equipped.
@@ -17,7 +18,8 @@ space, and does not mark it as MTP or EEPROM-equipped.
 | Item | Status |
 | --- | --- |
 | EasyPDK Programmer Lite R1 | Supported and live-tested |
-| Loose SOP16 `Y6`, pin 8 isolated as described below | Supported and live-tested |
+| Original loose SOP16 `Y6`, pin 8 isolated as described below | Supported and live-tested |
+| One loose SOP16 target removed from a TH03Pro Forever Young device, pin 8 isolated | Supported and live-tested; not a claim about every TH03Pro |
 | Other chips reporting an ID in the host database | Identification text only; not validated for reads |
 | NY8A054E-family parts in other packages | Not validated |
 | In-circuit targets or externally powered targets | Not supported |
@@ -37,11 +39,13 @@ The experimental firmware exposes only two target transactions:
 powered off. The host retrieves every capture twice and requires the two copies
 to be byte-identical before saving it.
 
-`dump2048` has an additional specimen-specific gate: after the target is off,
-the host hashes the first 36 raw bytes and saves the capture only if they match
-the validated Y6 fingerprint. Different firmware in an otherwise valid
-NY8A054E will deliberately be rejected and no output files will be published.
-This fingerprint gate does not apply to `readid`.
+`dump2048` has an additional profile allowlist: after the target is off, the host
+hashes the first 36 raw bytes and saves the capture only if they match one of the
+two independently reproduced program-prefix fingerprints. Different firmware
+in an otherwise valid NY8A054E will deliberately be rejected and no output files
+will be published. This is a post-read save guardrail, not chip authentication
+or pre-read electrical protection; another device sharing an allowed program
+prefix can pass it. The fingerprint gate does not apply to `readid`.
 
 The host utility can:
 
@@ -89,12 +93,13 @@ experiment.
 - Every completed target transaction is followed by target power-off and fresh
   off-rail ADC checks.
 - The host requires explicit confirmation flags before either target read.
-- Y6 pin 8 isolated from the adapter's `A5`/VPP contact is required by the host
-  workflow and is the only setup in which this target completed the handshake.
+- Physical target pin 8 isolated from the adapter's `A5`/VPP contact is required
+  by the host workflow and is the only setup validated for either target.
 
 ## Hardware setup and pin mapping
 
-The validated target was loose and completely removed from its original PCB.
+Both validated targets were loose and completely removed from their original
+PCBs.
 Unplug the Lite R1 before inserting, removing, or changing the target. Do not
 connect another power supply, the original product PCB, or a debug probe to the
 target while the Lite R1 is connected.
@@ -122,9 +127,10 @@ Pin 8 is not isolated because the NY8 data sheet says to leave it disconnected.
 It is isolated because the stock breakout sends that contact to the Lite R1 VPP
 amplifier. The no-VPP firmware deliberately commands that output to 0 V and
 neither drives nor samples pin 8 as part of the read protocol. All successful
-reads used an open contact 8; operation with it connected has not been qualified
-under the final firmware. This is the validated setup and safety boundary, not
-a claim that the chip inherently requires its reset/VPP pin to be isolated.
+reads of both specimens used an open contact 8; operation with it connected has
+not been qualified under the final firmware. This is the validated setup and
+safety boundary, not a claim that the chip inherently requires its reset/VPP pin
+to be isolated.
 
 ## EXP7.1 interpretation of the tested Y6
 
@@ -150,6 +156,32 @@ Raw factory fields:
 The retained program dump has final words `0x3EF2 0x04DA`, producing the stored
 24-bit field `0xBC84DA`. Its offline Q-Writer program-range checksum is
 `0x008004E6`.
+
+## TH03Pro Forever Young specimen validation
+
+One second loose SOP16 target was validated on 2026-09-03. Six independent
+information-read cycles agreed on all 17 words and on both copies within every
+cycle. Its IDs are the same `0x0F02`/`0x0014` NY8A054E revision C match as Y6,
+and all reported family, protection, CP, and mode fields agree with Y6.
+
+Only three captured information words differ, corresponding to plausible
+per-die factory trims:
+
+| Factory field | Original Y6 | TH03Pro specimen |
+| --- | ---: | ---: |
+| LVD/LDO trim | `0x1E` | `0x1C` |
+| IHRC trim | `0x17` | `0x0E` |
+| ILRC trim | `0xCF` | `0xD0` |
+
+Five independent full target transactions completed with result 16, VPP at
+0 mV, safe VDD, target power-off, and identical duplicate RAM retrievals. The
+program-prefix fingerprint reproduced every time. Three separately saved full
+captures were byte-identical. Every stored word was 14-bit clean, and the
+offline disassembler reported no unknown opcode encodings. The programmed image
+is distinct from Y6: 1797 of its 2048 stored words differ.
+
+This validates the protocol and save profile only for the tested loose specimen;
+it does not establish that every TH03Pro revision uses this MCU or wiring.
 
 ## Build and flash
 
@@ -212,7 +244,7 @@ python .\ny8-easypdk.py readid `
   --confirm-pin8-isolated `
   --confirm-id-read `
   --repeats 6 `
-  --output-prefix .\Y6-info
+  --output-prefix .\target-info
 ```
 
 One fixed full-program read:
@@ -221,7 +253,7 @@ One fixed full-program read:
 python .\ny8-easypdk.py dump2048 `
   --confirm-pin8-isolated `
   --confirm-one-full-read `
-  --output-prefix .\Y6-rom
+  --output-prefix .\target-rom
 ```
 
 The output prefix must be new; the utility refuses to overwrite captures.
@@ -229,8 +261,8 @@ The output prefix must be new; the utility refuses to overwrite captures.
 Offline disassembly accepts the host's 4096-byte `*.ny8-rom14be.bin` output:
 
 ```powershell
-python .\tools\ny8_disasm.py .\Y6-rom.ny8-rom14be.bin `
-  --output .\Y6-rom.ny8-disasm.txt
+python .\tools\ny8_disasm.py .\target-rom.ny8-rom14be.bin `
+  --output .\target-rom.ny8-disasm.txt
 ```
 
 ## Evidence, provenance, and publication boundary

@@ -45,10 +45,14 @@ NY8_INFO_DEFAULT_REPEATS = 6
 NY8_INFO_REQUIRED_ADDRESSES = (0x05, 0x0F, 0x10, 0x11, 0x15)
 OFF_RAIL_MAX_MV = 500
 IDLE_SETTLE_SECONDS = 0.25
-VALIDATED_Y6_PREFIX_BYTES = 36
-VALIDATED_Y6_PREFIX_SHA256 = (
-    "69C2F39AB27A6AC8CDBE072E78CCF9786E0495707A7EBC939E6104A047034AA9"
-)
+VALIDATED_PROGRAM_PREFIX_BYTES = 36
+# SHA-256 of the raw command response plus the first 16 program words.
+VALIDATED_PROGRAM_PREFIXES_SHA256 = {
+    "69C2F39AB27A6AC8CDBE072E78CCF9786E0495707A7EBC939E6104A047034AA9":
+        "original Y6 program-prefix profile",
+    "671D90D7B482ED49F1E73996E67D2EB538F778652DA8B0F96002604ADB3B0512":
+        "TH03Pro Forever Young program-prefix profile",
+}
 
 QWRITER_ID_DATABASE = {
     (0x0F00, 0x000C): "NY8A054D revision A",
@@ -448,16 +452,8 @@ def do_dump2048(port: serial.Serial, raw_path: Path, rom_path: Path) -> bool:
         raise ProtocolError("the two target-off RAM retrieval passes differ")
     print("Target-off RAM retrieval comparison: PASS")
 
-    prefix_sha256 = hashlib.sha256(
-        first[:VALIDATED_Y6_PREFIX_BYTES]
-    ).hexdigest().upper()
-    if prefix_sha256 != VALIDATED_Y6_PREFIX_SHA256:
-        raise ProtocolError(
-            "full-read prefix did not reproduce the validated Y6 fingerprint\n"
-            f"expected SHA-256: {VALIDATED_Y6_PREFIX_SHA256}\n"
-            f"actual SHA-256:   {prefix_sha256}"
-        )
-    print("Validated Y6 prefix fingerprint: PASS")
+    _, profile = require_validated_program_prefix(first)
+    print(f"Validated program-prefix fingerprint: PASS ({profile})")
 
     words = decode_program_words(first[NY8_DUMP_COMMAND_RX_BYTES:])
     if len(words) != NY8_DUMP_WORDS:
@@ -481,6 +477,28 @@ def do_dump2048(port: serial.Serial, raw_path: Path, rom_path: Path) -> bool:
     print(f"  Offline program-range checksum: 0x{range_checksum:08X}")
     print("  Algorithm: sum(byte XOR absolute byte address), range 0x0000..0x0FFF.")
     return True
+
+
+def require_validated_program_prefix(raw_capture: bytes) -> tuple[str, str]:
+    if len(raw_capture) < VALIDATED_PROGRAM_PREFIX_BYTES:
+        raise ProtocolError(
+            "full-read capture is shorter than the validated fingerprint window"
+        )
+    digest = hashlib.sha256(
+        raw_capture[:VALIDATED_PROGRAM_PREFIX_BYTES]
+    ).hexdigest().upper()
+    profile = VALIDATED_PROGRAM_PREFIXES_SHA256.get(digest)
+    if profile is None:
+        known_fingerprints = "\n".join(
+            f"  {name}: {known_digest}"
+            for known_digest, name in VALIDATED_PROGRAM_PREFIXES_SHA256.items()
+        )
+        raise ProtocolError(
+            "full-read prefix did not match a validated program-prefix profile\n"
+            f"known SHA-256 fingerprints:\n{known_fingerprints}\n"
+            f"actual SHA-256: {digest}"
+        )
+    return digest, profile
 
 
 def qwriter_chip_id(info_word: int) -> int:
@@ -745,7 +763,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--confirm-pin8-isolated",
         action="store_true",
         required=True,
-        help="confirm physical Y6 pin 8/VPP is isolated from the adapter",
+        help="confirm physical target pin 8/VPP is isolated from the adapter",
     )
     dump_parser.add_argument(
         "--confirm-one-full-read",
@@ -766,7 +784,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--confirm-pin8-isolated",
         action="store_true",
         required=True,
-        help="confirm physical Y6 pin 8/VPP is isolated from the adapter",
+        help="confirm physical target pin 8/VPP is isolated from the adapter",
     )
     info_parser.add_argument(
         "--confirm-id-read",
