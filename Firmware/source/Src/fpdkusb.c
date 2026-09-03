@@ -19,11 +19,14 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "fpdk.h"
 #include "fpdkuart.h"
 #include "main.h"
+#include "ny8.h"
 #include "usbd_cdc_if.h"
 
 #include <string.h>
 
-static const uint8_t FPDKVER[] = "FREE-PDK EASY PROG - HW:" __FPDKHW__ " SW:" __FPDKSW__ " PROTO:" __FPDKPROTO__ "\n";
+static const uint8_t FPDKVER_LITE[] = "FREE-PDK EASY PROG - HW:" __FPDKHW__ " SW:" __FPDKSW__ " PROTO:" __FPDKPROTO__ " " __FPDKEXP__ " HWVAR:LITE\n";
+static const uint8_t FPDKVER_MINI[] = "FREE-PDK EASY PROG - HW:" __FPDKHW__ " SW:" __FPDKSW__ " PROTO:" __FPDKPROTO__ " " __FPDKEXP__ " HWVAR:MINI_PILL\n";
+static const uint8_t FPDKVER_UNKNOWN[] = "FREE-PDK EASY PROG - HW:" __FPDKHW__ " SW:" __FPDKSW__ " PROTO:" __FPDKPROTO__ " " __FPDKEXP__ " HWVAR:UNKNOWN\n";
 
 static const uint32_t FPDK_LED_UART_RX = 1;
 static const uint32_t FPDK_LED_UART_TX = 2;
@@ -33,34 +36,62 @@ static uint8_t  _packetbuf[256+2];
 static uint32_t _packetbufpos = 0;
 
 static uint16_t _ic_rw_buffer[0x1000];
+static bool _ny8_capture_valid = false;
+static uint16_t _ny8_capture_bytes = 0;
 
+_Static_assert(NY8_DUMP_RX_BYTES <= sizeof(_ic_rw_buffer), "NY8 dump must fit the static IC buffer");
+_Static_assert(NY8_INFO_RX_BYTES <= sizeof(_ic_rw_buffer), "NY8 information capture must fit the static IC buffer");
+
+#if !NY8_EXPERIMENT_ONLY
 static bool _ic_is_running;
+#endif
 
 static const uint32_t _dbg_led_on_time = 50;
 static volatile uint32_t _dbg_led_rx_off_tick = 0;
 static volatile uint32_t _dbg_led_tx_off_tick = 0;
 
+static void _FPDKUSB_TargetSafeOff(void)
+{
+  _ny8_capture_valid = false;
+  _ny8_capture_bytes = 0;
+#if !NY8_EXPERIMENT_ONLY
+  if( _ic_is_running )
+    FPDKUART_DeInit();
+#endif
+
+  NY8_Abort();
+  FPDK_SetLed(FPDK_LED_IC,false);
+  FPDK_SetLed(FPDK_LED_UART_RX,false);
+  FPDK_SetLed(FPDK_LED_UART_TX,false);
+#if !NY8_EXPERIMENT_ONLY
+  _ic_is_running = false;
+#endif
+}
+
 void FPDKUSB_Init(void)
 {
   _packetbufpos = 0;
+  _ny8_capture_valid = false;
+  _ny8_capture_bytes = 0;
+  memset(_ic_rw_buffer, 0xFF, sizeof(_ic_rw_buffer));
+  _FPDKUSB_TargetSafeOff();
 }
 
 void FPDKUSB_DeInit(void)
 {
+  _packetbufpos = 0;
+  _ny8_capture_valid = false;
+  _ny8_capture_bytes = 0;
+  _FPDKUSB_TargetSafeOff();
 }
 
 void FPDKUSB_USBSignalPortOpenClose(void)
 {
   _packetbufpos = 0;
+  _ny8_capture_valid = false;
+  _ny8_capture_bytes = 0;
   memset(_ic_rw_buffer, 0xFF, sizeof(_ic_rw_buffer));
-
-  if( _ic_is_running )
-  {
-    FPDKUART_DeInit();
-    FPDK_SetVDD(0,0);
-    FPDK_SetLed(FPDK_LED_IC,false);
-    _ic_is_running = false;
-  }
+  _FPDKUSB_TargetSafeOff();
 }
 
 bool FPDKUSB_IsConnected(void)
@@ -110,6 +141,33 @@ void _FPDKUSB_Ack(const uint8_t* dat, const uint32_t len)
   _FPDKUSB_SendResponse( FPDKPROTO_RSP_ACK, dat, len );
 }
 
+static void _FPDKUSB_WriteU32LE(uint8_t* dst, uint32_t value)
+{
+  dst[0] = value;
+  dst[1] = value>>8;
+  dst[2] = value>>16;
+  dst[3] = value>>24;
+}
+
+static void _FPDKUSB_WriteNY8Status(uint8_t* response, const NY8STATUS* status)
+{
+  _FPDKUSB_WriteU32LE(&response[0], status->result);
+  _FPDKUSB_WriteU32LE(&response[4], status->hw_variant);
+  _FPDKUSB_WriteU32LE(&response[8], status->target_vdd_mv);
+  _FPDKUSB_WriteU32LE(&response[12], status->active_vdd_mv);
+  _FPDKUSB_WriteU32LE(&response[16], status->active_vpp_mv);
+  _FPDKUSB_WriteU32LE(&response[20], status->off_vdd_mv);
+  _FPDKUSB_WriteU32LE(&response[24], status->off_vpp_mv);
+  _FPDKUSB_WriteU32LE(&response[28], status->capture_count);
+}
+
+static void _FPDKUSB_AckNY8Status(const NY8STATUS* status)
+{
+  uint8_t response[8*sizeof(uint32_t)];
+  _FPDKUSB_WriteNY8Status(response, status);
+  _FPDKUSB_Ack(response, sizeof(response));
+}
+
 void FPDKUSB_SendDebug(const uint8_t* dat, const uint32_t len)
 {
   FPDK_SetLed(FPDK_LED_UART_RX, true);
@@ -122,7 +180,14 @@ bool _FPDKUSB_HandleCmd(const FPDKPROTO_CMD cmd, const uint8_t* dat, const uint3
   switch( cmd )
   {
     case FPDKPROTO_CMD_GETVERINFO:
-      _FPDKUSB_Ack( FPDKVER, strlen((char*)FPDKVER) );
+      {
+        const uint8_t* version = FPDKVER_UNKNOWN;
+        if( FPDK_HWVAR_LITE == FPDK_GetHardwareVariant() )
+          version = FPDKVER_LITE;
+        else if( FPDK_HWVAR_MINI_PILL == FPDK_GetHardwareVariant() )
+          version = FPDKVER_MINI;
+        _FPDKUSB_Ack( version, strlen((char*)version) );
+      }
       break;
 
     case FPDKPROTO_CMD_SETLED:
@@ -143,13 +208,22 @@ bool _FPDKUSB_HandleCmd(const FPDKPROTO_CMD cmd, const uint8_t* dat, const uint3
 
     case  FPDKPROTO_CMD_SETVOLTOUT:
       {
-        if( len<(2*sizeof(uint32_t)) )
+        if( len!=(2*sizeof(uint32_t)) )
           return false;
-        uint32_t tmp;
-        memcpy( &tmp, &dat[0], sizeof(uint32_t) );
-        FPDK_SetVDD(tmp,0);
-        memcpy( &tmp, &dat[4], sizeof(uint32_t) );
-        FPDK_SetVPP(tmp,0);
+        uint32_t vdd;
+        uint32_t vpp;
+        memcpy( &vdd, &dat[0], sizeof(uint32_t) );
+        memcpy( &vpp, &dat[4], sizeof(uint32_t) );
+        if( vdd || vpp )
+        {
+          _FPDKUSB_TargetSafeOff();
+          return false;
+        }
+        if( !FPDK_SetVPP(vpp,0) || !FPDK_SetVDD(vdd,0) )
+        {
+          _FPDKUSB_TargetSafeOff();
+          return false;
+        }
         _FPDKUSB_Ack(0, 0);
         FPDK_SetLeds(0xF); //set all LEDs to on
       }
@@ -162,6 +236,7 @@ bool _FPDKUSB_HandleCmd(const FPDKPROTO_CMD cmd, const uint8_t* dat, const uint3
       }
       break;
 
+#if !NY8_EXPERIMENT_ONLY
     case FPDKPROTO_CMD_SETBUF:
       {
         if( len<sizeof(uint16_t) )
@@ -176,23 +251,77 @@ bool _FPDKUSB_HandleCmd(const FPDKPROTO_CMD cmd, const uint8_t* dat, const uint3
         _FPDKUSB_Ack(0, 0);
       }
       break;
+#endif
 
     case FPDKPROTO_CMD_GETBUF:
       {
-        if( len<(2*sizeof(uint16_t)) )
+        if( len!=(2*sizeof(uint16_t)) || !_ny8_capture_valid )
           return false;
         uint16_t data_offs;
         memcpy( &data_offs, &dat[0], sizeof(uint16_t) );
         uint16_t outlen;
         memcpy( &outlen, &dat[2], sizeof(uint16_t) );
 
-        if( (data_offs>(sizeof(_ic_rw_buffer)*sizeof(uint16_t))) || ((data_offs+outlen)>(sizeof(_ic_rw_buffer)*sizeof(uint16_t))) )
+        if( !outlen || outlen>NY8_DUMP_USB_CHUNK_MAX ||
+            data_offs>=_ny8_capture_bytes ||
+            (uint32_t)data_offs+(uint32_t)outlen>_ny8_capture_bytes )
           return false;
 
         _FPDKUSB_Ack( ((uint8_t*)_ic_rw_buffer) + data_offs, outlen);
       }
       break;
 
+    case FPDKPROTO_CMD_NY8READINFO:
+      {
+        if( len )
+        {
+          _FPDKUSB_TargetSafeOff();
+          return false;
+        }
+        _FPDKUSB_TargetSafeOff();
+        FPDK_SetLed(FPDK_LED_IC,true);
+        NY8STATUS status;
+        NY8RESULT result = NY8_ReadInfoNoVPP(
+          &status, (uint8_t*)_ic_rw_buffer, sizeof(_ic_rw_buffer));
+        FPDK_SetLed(FPDK_LED_IC,false);
+        if( (NY8_RESULT_INFO_COMPLETE == result || NY8_RESULT_INFO_MISMATCH == result) &&
+            result == status.result &&
+            NY8_INFO_RX_BYTES == status.capture_count &&
+            FPDK_HWVAR_LITE == status.hw_variant )
+        {
+          _ny8_capture_valid = true;
+          _ny8_capture_bytes = NY8_INFO_RX_BYTES;
+        }
+        _FPDKUSB_AckNY8Status(&status);
+      }
+      break;
+
+    case FPDKPROTO_CMD_NY8DUMP2048:
+      {
+        if( len )
+        {
+          _FPDKUSB_TargetSafeOff();
+          return false;
+        }
+        _FPDKUSB_TargetSafeOff();
+        FPDK_SetLed(FPDK_LED_IC,true);
+        NY8STATUS status;
+        NY8RESULT result = NY8_Dump2048NoVPP(
+          &status, (uint8_t*)_ic_rw_buffer, sizeof(_ic_rw_buffer));
+        FPDK_SetLed(FPDK_LED_IC,false);
+        if( NY8_RESULT_DUMP2048_COMPLETE == result &&
+            NY8_RESULT_DUMP2048_COMPLETE == status.result &&
+            NY8_DUMP_RX_BYTES == status.capture_count &&
+            FPDK_HWVAR_LITE == status.hw_variant )
+        {
+          _ny8_capture_valid = true;
+          _ny8_capture_bytes = NY8_DUMP_RX_BYTES;
+        }
+        _FPDKUSB_AckNY8Status(&status);
+      }
+      break;
+
+#if !NY8_EXPERIMENT_ONLY
     case FPDKPROTO_CMD_PROBEIC:
       {
         FPDK_SetLed(FPDK_LED_IC,true);
@@ -431,16 +560,14 @@ bool _FPDKUSB_HandleCmd(const FPDKPROTO_CMD cmd, const uint8_t* dat, const uint3
         _FPDKUSB_Ack(0, 0);
       }
       break;
+#endif
 
     case FPDKPROTO_CMD_STOPIC:
-      FPDKUART_DeInit();
-      FPDK_SetVDD(0, 0);
-      FPDK_SetLed(FPDK_LED_IC,false);
-      FPDK_SetLed(FPDK_LED_UART_RX, false);
-      FPDK_SetLed(FPDK_LED_UART_TX, false);
+      _FPDKUSB_TargetSafeOff();
       _FPDKUSB_Ack(0, 0);
       break;
 
+#if !NY8_EXPERIMENT_ONLY
     case FPDKPROTO_CMD_DBGDAT:
       {
         FPDK_SetLed(FPDK_LED_UART_TX, true);
@@ -449,6 +576,7 @@ bool _FPDKUSB_HandleCmd(const FPDKPROTO_CMD cmd, const uint8_t* dat, const uint3
         //no ACK here, since we could receive debug data in this moment
       }
       break;;
+#endif
 
     default:
       return false;

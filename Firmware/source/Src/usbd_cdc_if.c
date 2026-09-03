@@ -164,6 +164,7 @@ static int8_t CDC_Init_FS(void)
 static int8_t CDC_DeInit_FS(void)
 {
   /* USER CODE BEGIN 4 */
+  FPDKUSB_DeInit();
   return (USBD_OK);
   /* USER CODE END 4 */
 }
@@ -275,6 +276,9 @@ uint8_t CDC_Transmit_FS(uint8_t* Buf, uint16_t Len)
   uint8_t result = USBD_OK;
   /* USER CODE BEGIN 7 */
   USBD_CDC_HandleTypeDef *hcdc = (USBD_CDC_HandleTypeDef*)hUsbDeviceFS.pClassData;
+  if( !hcdc ){
+    return USBD_FAIL;
+  }
   if (hcdc->TxState != 0){
     return USBD_BUSY;
   }

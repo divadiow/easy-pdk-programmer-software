@@ -23,6 +23,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #define __FPDKSW__ "1.3"
 #define __FPDKHW__ "1.2"
+#define __FPDKEXP__ "NY8EXP7.1"
 
 typedef enum FPDKHWVARIANT
 {
@@ -46,6 +47,7 @@ typedef enum FPDKICTYPE
 
 void     FPDK_Init(void);
 void     FPDK_DeInit(void);
+FPDKHWVARIANT FPDK_GetHardwareVariant(void);
 
 void     FPDK_SetLeds(uint32_t val);
 void     FPDK_SetLed(uint32_t led, bool enable);
@@ -56,6 +58,7 @@ bool     FPDK_SetVPP(uint32_t mV, uint32_t stabelizeDelayUS);
 uint32_t FPDK_GetAdcVref(void);
 uint32_t FPDK_GetAdcVdd(void);
 uint32_t FPDK_GetAdcVpp(void);
+uint32_t FPDK_GetAdcSampleGeneration(void);
 
 uint32_t FPDK_ProbeIC(FPDKICTYPE* type, uint32_t* vpp_cmd, uint32_t* vdd_cmd);
 

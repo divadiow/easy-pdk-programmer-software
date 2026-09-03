@@ -17,6 +17,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "fpdk.h"
 #include "fpdkproto.h"
+#include "ny8.h"
 
 #include "main.h"
 #include <string.h>
@@ -90,6 +91,7 @@ static uint32_t _adcDMABuffer[(2*(8*3)+3)/sizeof(uint16_t)];
 static volatile uint32_t _adc_vref;
 static volatile uint32_t _adc_vdd;
 static volatile uint32_t _adc_vpp;
+static volatile uint32_t _adc_sample_generation;
 
 static void _FPDK_ADC_HandleData(const uint16_t* adcdata)
 {
@@ -107,6 +109,7 @@ static void _FPDK_ADC_HandleData(const uint16_t* adcdata)
   _adc_vref = (3*_adc_vref + ((8 * VDD_VALUE * VREFINT_CAL)) / avref) / 4;                         //average vref also over last measurements
   _adc_vdd = (_adc_vref*avdd*6)>>15;                                                               //factor 6 by voltage divider resistors, >>15 = /4096 / 8
   _adc_vpp = (_adc_vref*avpp*6)>>15;
+  _adc_sample_generation++;
 }
 
 void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* AdcHandle) 
@@ -465,8 +468,10 @@ static void _FPDK_WriteAddr(const FPDKICTYPE type, const uint32_t addr, const ui
 
 void FPDK_Init(void)
 {
+#if !NY8_EXPERIMENT_ONLY
   HAL_SPI_DeInit(&hspi1);
   HAL_UART_DeInit(&huart1);
+#endif
 
   HAL_TIM_PWM_Start(&htim15, TIM_CHANNEL_2);                                                       //start PWM output to generate -4.8V (50kHz, 50% duty)
 
@@ -517,6 +522,7 @@ void FPDK_Init(void)
   _adc_vref = 0;
   _adc_vdd = 0;
   _adc_vpp = 0;
+  _adc_sample_generation = 0;
   HAL_ADCEx_Calibration_Start(&hadc);                                                              //calibrate ADC
   HAL_ADC_Start_DMA(&hadc, (uint32_t*)_adcDMABuffer, 2*(8*3) );                                    //start ADC (double buffer DMA with completion callbacks)
   HAL_TIM_Base_Start(&htim1);                                                                      //start tim1 to trigger ADC conversions
@@ -540,6 +546,11 @@ void FPDK_DeInit(void)
   _FPDK_SetPA4Incoming();
   _FPDK_SetPA0Incoming();
   _FPDK_SetPA7Incoming();
+}
+
+FPDKHWVARIANT FPDK_GetHardwareVariant(void)
+{
+  return _hw_variant;
 }
 
 void FPDK_SetLeds(uint32_t val)
@@ -593,8 +604,23 @@ uint32_t FPDK_GetAdcVpp(void) {
   return _adc_vpp;
 }
 
+uint32_t FPDK_GetAdcSampleGeneration(void) {
+  return _adc_sample_generation;
+}
+
 bool FPDK_SetVDD(uint32_t mV, uint32_t stabelizeDelayUS)
 {
+#if NY8_WEAK_PULL_IO
+  if( mV > NY8_TARGET_VDD_MV )
+  {
+    _dac_vdd = 0;
+    HAL_DACEx_DualSetValue( &hdac, DAC_ALIGN_12B_R, _dac_vpp, _dac_vdd );                          //VDD is capped at the experimental target voltage
+    if( stabelizeDelayUS )
+      _FPDK_DelayUS(stabelizeDelayUS);
+    return false;
+  }
+#endif
+
   _dac_vdd = (mV*4095) / FPDK_VDD_DAC_MAX_MV;
 
   if( _dac_vdd>4095 )
@@ -610,6 +636,15 @@ bool FPDK_SetVDD(uint32_t mV, uint32_t stabelizeDelayUS)
 
 bool FPDK_SetVPP(uint32_t mV, uint32_t stabelizeDelayUS)
 {
+#if !NY8_ALLOW_VPP
+  _dac_vpp = 0;
+  HAL_DACEx_DualSetValue( &hdac, DAC_ALIGN_12B_R, _dac_vpp, _dac_vdd );                            //VPP is hard-disabled in this experimental build
+
+  if( stabelizeDelayUS )
+    _FPDK_DelayUS(stabelizeDelayUS);
+
+  return (0 == mV);
+#else
   _dac_vpp = (mV*4095) / FPDK_VPP_DAC_MAX_MV;
 
   if( _dac_vpp>4095 )
@@ -621,6 +656,7 @@ bool FPDK_SetVPP(uint32_t mV, uint32_t stabelizeDelayUS)
     _FPDK_DelayUS(stabelizeDelayUS);
 
   return true;
+#endif
 }
 
 static uint32_t _FPDK_GetIDIC(const FPDKICTYPE type, const uint32_t vpp_cmd, const uint32_t vdd_cmd, const uint8_t databits)

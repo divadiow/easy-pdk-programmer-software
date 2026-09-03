@@ -11,6 +11,7 @@ TARGET = EASYPDKPROG
 C_SOURCES =  \
 Src/main.c \
 Src/fpdk.c \
+Src/ny8.c \
 Src/fpdkuart.c \
 Src/fpdkusb.c \
 Src/usb_device.c \
@@ -176,7 +177,7 @@ $(BUILD_DIR)/%.bin: $(BUILD_DIR)/%.elf | $(BUILD_DIR)
 	
 $(BUILD_DIR)/%.dfu: $(BUILD_DIR)/%.bin | $(BUILD_DIR)
 	cp $< $@
-	-$(DFU_SUFFIX) -v 0483 -p df11 -a $@
+	$(DFU_SUFFIX) -v 0483 -p df11 -a $@
 
 $(BUILD_DIR):
 	mkdir $@		

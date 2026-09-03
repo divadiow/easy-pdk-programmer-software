@@ -26,6 +26,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "fpdk.h"
 #include "fpdkusb.h"
 #include "fpdkuart.h"
+#include "ny8.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -109,8 +110,10 @@ int main(void)
   MX_USB_DEVICE_Init();
   MX_TIM15_Init();
   MX_TIM1_Init();
+#if !NY8_EXPERIMENT_ONLY
   MX_USART1_UART_Init();
   MX_SPI1_Init();
+#endif
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
   FPDK_Init();
@@ -125,7 +128,9 @@ int main(void)
     {
       //com port connected, handle commands
       FPDKUSB_HandleCommands();
+#if !NY8_EXPERIMENT_ONLY
       FPDKUART_HandleQueue();
+#endif
     }
     else
     {
