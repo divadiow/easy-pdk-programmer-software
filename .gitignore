@@ -1,2 +1,12 @@
 easypdkprog
 *.o
+
+# Local STM32 firmware builds and Python caches.
+/Firmware/source/build*/
+/__pycache__/
+/.pytest_cache/
+*.py[cod]
+
+# NY8 target captures and generated disassembly output.
+*.ny8-*.bin
+*.ny8-disasm*.txt
