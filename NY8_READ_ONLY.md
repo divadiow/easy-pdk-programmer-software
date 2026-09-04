@@ -6,9 +6,10 @@ This is experimental, read-only firmware and a matching host utility for the
 EasyPDK Programmer Lite R1. It is not an extension of the normal Padauk
 programming support, a general Nyquest programmer, or an official Nyquest tool.
 
-Two loose SOP16 targets have been live-tested: the original `Y6` from the
-investigated sensor board and one suspected NY8 removed from a TH03Pro Forever
-Young device. Both have protocol-visible Q-Writer IDs `0x0F02` and `0x0014`,
+Three loose SOP16 targets have been live-tested: the first-tested specimen from
+the investigated TH02Pro sensor board, one suspected NY8 removed from a TH03Pro
+Forever Young device, and one removed from an S09 temperature/humidity device.
+All three have protocol-visible Q-Writer IDs `0x0F02` and `0x0014`,
 which match Q-Writer's NY8A054E revision C profile. That is strong identification
 evidence, but not cryptographic proof of the die manufacturer.
 
@@ -18,8 +19,9 @@ space, and does not mark it as MTP or EEPROM-equipped.
 | Item | Status |
 | --- | --- |
 | EasyPDK Programmer Lite R1 | Supported and live-tested |
-| Original loose SOP16 `Y6`, pin 8 isolated as described below | Supported and live-tested |
+| First-tested loose SOP16 target from the investigated TH02Pro sensor board, pin 8 isolated as described below | Supported and live-tested |
 | One loose SOP16 target removed from a TH03Pro Forever Young device, pin 8 isolated | Supported and live-tested; not a claim about every TH03Pro |
+| One loose SOP16 target removed from an S09 temperature/humidity device, pin 8 isolated | Supported and live-tested; not a claim about every S09 |
 | Other chips reporting an ID in the host database | Identification text only; not validated for reads |
 | NY8A054E-family parts in other packages | Not validated |
 | In-circuit targets or externally powered targets | Not supported |
@@ -41,7 +43,7 @@ to be byte-identical before saving it.
 
 `dump2048` has an additional profile allowlist: after the target is off, the host
 hashes the first 36 raw bytes and saves the capture only if they match one of the
-two independently reproduced program-prefix fingerprints. Different firmware
+three independently reproduced program-prefix fingerprints. Different firmware
 in an otherwise valid NY8A054E will deliberately be rejected and no output files
 will be published. This is a post-read save guardrail, not chip authentication
 or pre-read electrical protection; another device sharing an allowed program
@@ -94,11 +96,11 @@ experiment.
   off-rail ADC checks.
 - The host requires explicit confirmation flags before either target read.
 - Physical target pin 8 isolated from the adapter's `A5`/VPP contact is required
-  by the host workflow and is the only setup validated for either target.
+  by the host workflow and is the only setup validated for all three targets.
 
 ## Hardware setup and pin mapping
 
-Both validated targets were loose and completely removed from their original
+All three validated targets were loose and completely removed from their original
 PCBs.
 Unplug the Lite R1 before inserting, removing, or changing the target. Do not
 connect another power supply, the original product PCB, or a debug probe to the
@@ -127,12 +129,12 @@ Pin 8 is not isolated because the NY8 data sheet says to leave it disconnected.
 It is isolated because the stock breakout sends that contact to the Lite R1 VPP
 amplifier. The no-VPP firmware deliberately commands that output to 0 V and
 neither drives nor samples pin 8 as part of the read protocol. All successful
-reads of both specimens used an open contact 8; operation with it connected has
+reads of all three specimens used an open contact 8; operation with it connected has
 not been qualified under the final firmware. This is the validated setup and
 safety boundary, not a claim that the chip inherently requires its reset/VPP pin
 to be isolated.
 
-## EXP7.1 interpretation of the tested Y6
+## EXP7.1 interpretation of the tested TH02Pro specimen
 
 From information word `0x09` low byte `0xF1`:
 
@@ -161,13 +163,13 @@ The retained program dump has final words `0x3EF2 0x04DA`, producing the stored
 
 One second loose SOP16 target was validated on 2026-09-03. Six independent
 information-read cycles agreed on all 17 words and on both copies within every
-cycle. Its IDs are the same `0x0F02`/`0x0014` NY8A054E revision C match as Y6,
-and all reported family, protection, CP, and mode fields agree with Y6.
+cycle. Its IDs are the same `0x0F02`/`0x0014` NY8A054E revision C match as the
+TH02Pro specimen, and all reported family, protection, CP, and mode fields agree.
 
 Only three captured information words differ, corresponding to plausible
 per-die factory trims:
 
-| Factory field | Original Y6 | TH03Pro specimen |
+| Factory field | TH02Pro specimen | TH03Pro specimen |
 | --- | ---: | ---: |
 | LVD/LDO trim | `0x1E` | `0x1C` |
 | IHRC trim | `0x17` | `0x0E` |
@@ -178,10 +180,45 @@ Five independent full target transactions completed with result 16, VPP at
 program-prefix fingerprint reproduced every time. Three separately saved full
 captures were byte-identical. Every stored word was 14-bit clean, and the
 offline disassembler reported no unknown opcode encodings. The programmed image
-is distinct from Y6: 1797 of its 2048 stored words differ.
+is distinct from the TH02Pro specimen: 1797 of its 2048 stored words differ.
 
 This validates the protocol and save profile only for the tested loose specimen;
 it does not establish that every TH03Pro revision uses this MCU or wiring.
+
+## S09 temperature/humidity specimen validation
+
+A third loose SOP16 target, removed from an S09 temperature/humidity smart device
+that also contained a separate Beken wireless module, was validated on 2026-09-03.
+Six independent information-read cycles agreed on all 17 words and on both copies
+within every cycle. Its IDs are the same `0x0F02`/`0x0014` NY8A054E revision C
+match as the other two specimens, and all redundant ID-source words agree.
+
+The named mode, protection, and CP fields agree with the other specimens. The S09
+raw family-status byte is `0xF9`, rather than `0xF1`; the differing raw bit does
+not currently have a meaning assigned by the extracted Q-Writer interpretation.
+Its decoded factory trims provide further plausible per-die variation:
+
+| Factory field | TH02Pro specimen | TH03Pro specimen | S09 specimen |
+| --- | ---: | ---: | ---: |
+| LVR trim | `0x3` | `0x3` | `0x4` |
+| LVD/LDO trim | `0x1E` | `0x1C` | `0x1E` |
+| IHRC trim | `0x17` | `0x0E` | `0x12` |
+| ILRC trim | `0xCF` | `0xD0` | `0xD3` |
+
+Five independent full target transactions completed with result 16, active VDD
+between 3294 and 3299 mV, VPP at 0 mV, target power-off, and identical duplicate
+RAM retrievals. The third program-prefix fingerprint reproduced every time.
+Three separately saved full captures were byte-identical. All 2048 stored words
+were 14-bit clean, and the offline disassembler reported no unknown opcode
+encodings. The image is distinct from both controls: 1965 words differ from the
+TH02Pro specimen and 1971 differ from the TH03Pro specimen.
+
+The retained program dump has final words `0x3EBF 0x1A36`, producing the stored
+24-bit field `0xAFDA36`. Its offline Q-Writer program-range checksum is
+`0x00801671`.
+
+This validates the protocol and save profile only for the tested loose specimen;
+it does not establish that every S09 revision uses this MCU or wiring.
 
 ## Build and flash
 

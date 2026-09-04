@@ -49,9 +49,11 @@ VALIDATED_PROGRAM_PREFIX_BYTES = 36
 # SHA-256 of the raw command response plus the first 16 program words.
 VALIDATED_PROGRAM_PREFIXES_SHA256 = {
     "69C2F39AB27A6AC8CDBE072E78CCF9786E0495707A7EBC939E6104A047034AA9":
-        "original Y6 program-prefix profile",
+        "first-tested TH02Pro program-prefix profile",
     "671D90D7B482ED49F1E73996E67D2EB538F778652DA8B0F96002604ADB3B0512":
         "TH03Pro Forever Young program-prefix profile",
+    "6311F61E835FF2508A29F46139F1D7DB85A95ACEAFA62A79C8335B6D5C7A0608":
+        "S09 temperature/humidity device program-prefix profile",
 }
 
 QWRITER_ID_DATABASE = {
