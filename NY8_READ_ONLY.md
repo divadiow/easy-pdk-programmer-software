@@ -6,10 +6,9 @@ This is experimental, read-only firmware and a matching host utility for the
 EasyPDK Programmer Lite R1. It is not an extension of the normal Padauk
 programming support, a general Nyquest programmer, or an official Nyquest tool.
 
-Three loose SOP16 targets have been live-tested: the first-tested specimen from
-the investigated TH02Pro sensor board, one suspected NY8 removed from a TH03Pro
-Forever Young device, and one removed from an S09 temperature/humidity device.
-All three have protocol-visible Q-Writer IDs `0x0F02` and `0x0014`,
+Four loose targets have been live-tested: three SOP16 specimens removed from
+TH02Pro, TH03Pro, and S09 devices, and one SOP8 specimen removed from a P01
+Forever Young device. All four have protocol-visible Q-Writer IDs `0x0F02` and `0x0014`,
 which match Q-Writer's NY8A054E revision C profile. That is strong identification
 evidence, but not cryptographic proof of the die manufacturer.
 
@@ -22,8 +21,9 @@ space, and does not mark it as MTP or EEPROM-equipped.
 | First-tested loose SOP16 target from the investigated TH02Pro sensor board, pin 8 isolated as described below | Supported and live-tested |
 | One loose SOP16 target removed from a TH03Pro Forever Young device, pin 8 isolated | Supported and live-tested; not a claim about every TH03Pro |
 | One loose SOP16 target removed from an S09 temperature/humidity device, pin 8 isolated | Supported and live-tested; not a claim about every S09 |
+| One loose SOP8 target removed from a P01 Forever Young device, pin 4 isolated | Supported and live-tested; not a claim about every P01 |
 | Other chips reporting an ID in the host database | Identification text only; not validated for reads |
-| NY8A054E-family parts in other packages | Not validated |
+| Other NY8A054E-family package and product variants | Not validated |
 | In-circuit targets or externally powered targets | Not supported |
 | EasyPDK Mini, Blue Pill conversions, and other programmer variants | Refused by firmware |
 | Write, erase, execute, fuse, trim, or protection changes | Not implemented |
@@ -43,7 +43,7 @@ to be byte-identical before saving it.
 
 `dump2048` has an additional profile allowlist: after the target is off, the host
 hashes the first 36 raw bytes and saves the capture only if they match one of the
-three independently reproduced program-prefix fingerprints. Different firmware
+four independently reproduced program-prefix fingerprints. Different firmware
 in an otherwise valid NY8A054E will deliberately be rejected and no output files
 will be published. This is a post-read save guardrail, not chip authentication
 or pre-read electrical protection; another device sharing an allowed program
@@ -95,16 +95,18 @@ experiment.
 - Every completed target transaction is followed by target power-off and fresh
   off-rail ADC checks.
 - The host requires explicit confirmation flags before either target read.
-- Physical target pin 8 isolated from the adapter's `A5`/VPP contact is required
-  by the host workflow and is the only setup validated for all three targets.
+- The target's physical RSTb/VPP contact must be isolated from the adapter's
+  `A5`/VPP contact: SOP16 pin 8 or SOP8 pin 4 in the validated arrangements.
 
 ## Hardware setup and pin mapping
 
-All three validated targets were loose and completely removed from their original
+All four validated targets were loose and completely removed from their original
 PCBs.
 Unplug the Lite R1 before inserting, removing, or changing the target. Do not
 connect another power supply, the original product PCB, or a debug probe to the
 target while the Lite R1 is connected.
+
+### SOP16 Type-I breakout
 
 Orient the SOP16 package normally: its pin-1 dot/notch end goes at the breakout
 end marked `B4`/pin 1. The stock PFS173/PFS154 SO16 breakout labels describe the
@@ -125,14 +127,35 @@ powering the programmer. Do not omit target pin 12, which is the real VSS pin.
 The data sheet also labels SOP16 pin 16 with an alternate SDO function, but this
 implementation uses only the validated programming SDO on physical pin 10.
 
-Pin 8 is not isolated because the NY8 data sheet says to leave it disconnected.
-It is isolated because the stock breakout sends that contact to the Lite R1 VPP
-amplifier. The no-VPP firmware deliberately commands that output to 0 V and
-neither drives nor samples pin 8 as part of the read protocol. All successful
-reads of all three specimens used an open contact 8; operation with it connected has
-not been qualified under the final firmware. This is the validated setup and
-safety boundary, not a claim that the chip inherently requires its reset/VPP pin
-to be isolated.
+### SOP8 Type-I breakout
+
+Orient the SOP8 package with its pin-1 dot at the breakout's `VDD` corner. A
+180-degree rotation swaps VDD and VSS and risks damaging the target or
+programmer. The stock Type-I SO8 labels route the NY8A054ES8 pinout to the
+required Lite R1 nets:
+
+| NY8 SOP8 pin | NY8 function | SO8 breakout label | Lite R1 connection |
+| ---: | --- | --- | --- |
+| 1 | VDD | `VDD` | controlled target VDD |
+| 2 | `PA7/Xout` | `A7` | STM32 PB7; high-impedance and unused |
+| 3 | `PA6/Xin` | `A6` | STM32 PB5; high-impedance and unused |
+| 4 | `PA5/RSTb/Vpp` | `A5` | `PA5_ICVPP`; **must be left open** |
+| 5 | `PA4/SCK` | `A3` | STM32 PB3 |
+| 6 | `PA3/SDO` | `A4` | STM32 PB4, input only |
+| 7 | `PA2/SDI` | `A0` | STM32 PB6 |
+| 8 | VSS | `GND` | ground; **must remain connected** |
+
+Use an interposer or socket arrangement that leaves only target contact 4 open.
+Do not apply the SOP16 pin-8 isolation rule to an SOP8 target: SOP8 pin 8 is VSS.
+
+The RSTb/VPP contact is isolated because both stock breakouts send it to the Lite
+R1 VPP amplifier, not because the NY8 data sheet says to leave it disconnected.
+The no-VPP firmware commands that output to 0 V and does not use RSTb/VPP as part
+of the read protocol. All successful reads used an open RSTb/VPP contact. On the
+P01 specimen, one preliminary attempt with SOP8 pin 4 connected failed the
+handshake with SDO remaining high and captured no data; every subsequent
+pin-4-isolated read succeeded. This is the validated safety boundary, not proof that the silicon
+inherently requires its reset/VPP pin to be isolated on other programmers.
 
 ## EXP7.1 interpretation of the tested TH02Pro specimen
 
@@ -220,6 +243,42 @@ The retained program dump has final words `0x3EBF 0x1A36`, producing the stored
 This validates the protocol and save profile only for the tested loose specimen;
 it does not establish that every S09 revision uses this MCU or wiring.
 
+## P01 Forever Young SOP8 specimen validation
+
+A fourth loose target, an SOP8 device removed from a P01 PIR motion sensor that
+also contained a separate Beken wireless module, was validated on 2026-09-04.
+Six independent information-read cycles agreed on all 17 words and on both copies
+within every cycle. Its IDs are the same `0x0F02`/`0x0014` NY8A054E revision C
+match as the three SOP16 specimens, and all redundant ID-source words agree.
+
+The named mode, protection, and CP fields agree with the controls. Its raw
+family-status byte is `0xF1`. The decoded factory fields show further plausible
+per-die variation:
+
+| Factory field | TH02Pro | TH03Pro | S09 | P01 SOP8 |
+| --- | ---: | ---: | ---: | ---: |
+| LVR trim | `0x3` | `0x3` | `0x4` | `0x4` |
+| LVD/LDO trim | `0x1E` | `0x1C` | `0x1E` | `0x1D` |
+| IHRC trim | `0x17` | `0x0E` | `0x12` | `0x1F` |
+| ILRC trim | `0xCF` | `0xD0` | `0xD3` | `0xDA` |
+
+Five independent full target transactions completed with result 16, active VDD
+between 3296 and 3298 mV, VPP at 0 mV, target power-off, and identical duplicate
+RAM retrievals. The first two reads established the then-unknown fourth
+program-prefix fingerprint and were refused solely by the host's allowlist. All
+three subsequent retained reads matched the same fingerprint and were
+byte-identical. All 2048 stored words were 14-bit clean, and the offline
+disassembler reported no unknown opcode encodings.
+
+The programmed image is distinct from every SOP16 control: 1942 words differ
+from the TH02Pro specimen, 1813 from the TH03Pro specimen, and 1963 from the S09
+specimen. Its final words are `0x3CF5 0x1126`, producing the stored 24-bit field
+`0x3D5126`; its offline Q-Writer program-range checksum is `0x007FFBA9`.
+
+This validates the protocol, Type-I SO8 routing, and save profile only for the
+tested loose specimen with SOP8 pin 4 isolated. It does not establish that every
+P01 revision uses this MCU or wiring.
+
 ## Build and flash
 
 Required build tools are GNU Make, an Arm GNU `arm-none-eabi` toolchain, and
@@ -278,7 +337,7 @@ Six independent fixed information reads:
 
 ```powershell
 python .\ny8-easypdk.py readid `
-  --confirm-pin8-isolated `
+  --confirm-rst-vpp-isolated `
   --confirm-id-read `
   --repeats 6 `
   --output-prefix .\target-info
@@ -288,12 +347,14 @@ One fixed full-program read:
 
 ```powershell
 python .\ny8-easypdk.py dump2048 `
-  --confirm-pin8-isolated `
+  --confirm-rst-vpp-isolated `
   --confirm-one-full-read `
   --output-prefix .\target-rom
 ```
 
 The output prefix must be new; the utility refuses to overwrite captures.
+The older `--confirm-pin8-isolated` spelling remains an alias for existing SOP16
+scripts, but new invocations should use the package-neutral option shown above.
 
 Offline disassembly accepts the host's 4096-byte `*.ny8-rom14be.bin` output:
 

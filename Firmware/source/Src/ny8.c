@@ -20,7 +20,7 @@ use only the STM32's weak internal pulls.
 
 #include <string.h>
 
-// Lite r1 SO16 adapter: A3/SCK -> PB3, A4/SDO -> PB4, A0/SDI -> PB6.
+// Lite r1 Type-I SO8/SO16 routing: A3/SCK -> PB3, A4/SDO -> PB4, A0/SDI -> PB6.
 #define NY8_SCK_PORT          IC_IO_PA3_CLK_GPIO_Port
 #define NY8_SCK_PIN           IC_IO_PA3_CLK_Pin
 #define NY8_SDO_PORT          IC_IO_PA4_GPIO_Port

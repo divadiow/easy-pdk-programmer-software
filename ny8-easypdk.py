@@ -54,6 +54,8 @@ VALIDATED_PROGRAM_PREFIXES_SHA256 = {
         "TH03Pro Forever Young program-prefix profile",
     "6311F61E835FF2508A29F46139F1D7DB85A95ACEAFA62A79C8335B6D5C7A0608":
         "S09 temperature/humidity device program-prefix profile",
+    "ED93A3FF6E47B468409C5AE5F6F2E8FBDD1202B90AC809248FE3B1B4EE3ABD28":
+        "P01 Forever Young SOP8 program-prefix profile",
 }
 
 QWRITER_ID_DATABASE = {
@@ -762,10 +764,12 @@ def build_parser() -> argparse.ArgumentParser:
         "dump2048", help="perform the one fixed 2048-word read and save verified files"
     )
     dump_parser.add_argument(
+        "--confirm-rst-vpp-isolated",
         "--confirm-pin8-isolated",
+        dest="confirm_rst_vpp_isolated",
         action="store_true",
         required=True,
-        help="confirm physical target pin 8/VPP is isolated from the adapter",
+        help="confirm target RSTb/VPP (SOP16 pin 8 or SOP8 pin 4) is isolated from adapter A5/VPP",
     )
     dump_parser.add_argument(
         "--confirm-one-full-read",
@@ -783,10 +787,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="read the fixed 0x05..0x15 information window and decode chip IDs",
     )
     info_parser.add_argument(
+        "--confirm-rst-vpp-isolated",
         "--confirm-pin8-isolated",
+        dest="confirm_rst_vpp_isolated",
         action="store_true",
         required=True,
-        help="confirm physical target pin 8/VPP is isolated from the adapter",
+        help="confirm target RSTb/VPP (SOP16 pin 8 or SOP8 pin 4) is isolated from adapter A5/VPP",
     )
     info_parser.add_argument(
         "--confirm-id-read",

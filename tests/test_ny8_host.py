@@ -138,6 +138,8 @@ class SafetyGateTests(unittest.TestCase):
                     "TH03Pro Forever Young program-prefix profile",
                 "6311F61E835FF2508A29F46139F1D7DB85A95ACEAFA62A79C8335B6D5C7A0608":
                     "S09 temperature/humidity device program-prefix profile",
+                "ED93A3FF6E47B468409C5AE5F6F2E8FBDD1202B90AC809248FE3B1B4EE3ABD28":
+                    "P01 Forever Young SOP8 program-prefix profile",
             },
         )
         synthetic_capture = bytes(range(ny8.VALIDATED_PROGRAM_PREFIX_BYTES))
@@ -204,21 +206,32 @@ class SafetyGateTests(unittest.TestCase):
         parser = ny8.build_parser()
         with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             parser.parse_args(["dump2048", "--output-prefix", "capture"])
-        args = parser.parse_args(
-            [
-                "dump2048",
-                "--confirm-pin8-isolated",
-                "--confirm-one-full-read",
-                "--output-prefix",
-                "capture",
-            ]
+        actions = (
+            ("dump2048", "--confirm-one-full-read"),
+            ("readid", "--confirm-id-read"),
         )
-        self.assertEqual(args.action, "dump2048")
+        for action, authorization_flag in actions:
+            for isolation_flag in (
+                "--confirm-rst-vpp-isolated",
+                "--confirm-pin8-isolated",
+            ):
+                with self.subTest(action=action, isolation_flag=isolation_flag):
+                    args = parser.parse_args(
+                        [
+                            action,
+                            isolation_flag,
+                            authorization_flag,
+                            "--output-prefix",
+                            "capture",
+                        ]
+                    )
+                    self.assertEqual(args.action, action)
+                    self.assertTrue(args.confirm_rst_vpp_isolated)
         with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             parser.parse_args(
                 [
                     "readid",
-                    "--confirm-pin8-isolated",
+                    "--confirm-rst-vpp-isolated",
                     "--confirm-id-read",
                     "--repeats",
                     "11",
